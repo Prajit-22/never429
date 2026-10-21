@@ -3,7 +3,7 @@ name = "never429"
 version = "0.1.0"
 description = "One endpoint for every free LLM tier, with automatic failover"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "httpx",
 ]
@@ -11,5 +11,5 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
-    "workers-py",
+    "workers-py>=1.9",
 ]
