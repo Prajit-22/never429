@@ -72,7 +72,7 @@ All optional, set as vars in `wrangler.toml` or the dashboard:
 | `UPSTREAM_TIMEOUT_SECONDS` | `30` | per-attempt timeout before failing over |
 | `GATEWAY_KEY` (secret) | off | if set, clients must send it as their Bearer key |
 
-The default chain for `model: "default"` is Groq → Gemini → Cerebras → Mistral → OpenRouter (`:free` model), and there is a `"fast"` chain with smaller models. Providers without a key are skipped automatically. Have two keys for one provider? Set them comma-separated (`GROQ_API_KEY=key1,key2`) and a dead or exhausted key fails over to the next one before moving down the chain. Check each provider's docs for current model ids and free-tier limits - they change often.
+The default chain for `model: "default"` is Groq → Gemini → OpenRouter (`:free` model), there is a `"fast"` chain with smaller models, and a `"demo"` chain (Gemini first) that makes the failover easy to see. Cerebras and Mistral stay registered in `src/providers.py` if you want them in your own `MODEL_MAP`. Providers without a key are skipped automatically. Have two keys for one provider? Set them comma-separated (`GROQ_API_KEY=key1,key2`) and a dead or exhausted key fails over to the next one before moving down the chain. Check each provider's docs for current model ids and free-tier limits - they change often.
 
 ## What you get back
 
