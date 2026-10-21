@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" font-family="ui-monospace, Menlo, Consolas, monospace">
+  <rect width="960" height="420" fill="#0d1117"/>
+  <text x="40" y="48" fill="#f0f6fc" font-size="22" font-weight="bold">never429 - how a request flows</text>
+
+  <rect x="40" y="170" width="150" height="80" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="2"/>
+  <text x="115" y="205" fill="#58a6ff" font-size="15" text-anchor="middle">your app</text>
+  <text x="115" y="227" fill="#8b949e" font-size="12" text-anchor="middle">OpenAI client</text>
+
+  <rect x="290" y="150" width="220" height="120" rx="10" fill="#161b22" stroke="#f78166" stroke-width="2.5"/>
+  <text x="400" y="185" fill="#f78166" font-size="16" font-weight="bold" text-anchor="middle">never429 worker</text>
+  <text x="400" y="208" fill="#8b949e" font-size="12" text-anchor="middle">1. cache check</text>
+  <text x="400" y="226" fill="#8b949e" font-size="12" text-anchor="middle">2. daily budget check</text>
+  <text x="400" y="244" fill="#8b949e" font-size="12" text-anchor="middle">3. failover loop</text>
+
+  <rect x="610" y="80" width="290" height="58" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+  <text x="625" y="104" fill="#3fb950" font-size="14">groq</text>
+  <text x="625" y="123" fill="#8b949e" font-size="12">free tier ~ daily quota</text>
+  <text x="838" y="104" fill="#f85149" font-size="13" text-anchor="end">429 ?</text>
+
+  <rect x="610" y="155" width="290" height="58" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+  <text x="625" y="179" fill="#3fb950" font-size="14">gemini</text>
+  <text x="625" y="198" fill="#8b949e" font-size="12">free tier ~ daily quota</text>
+  <text x="838" y="179" fill="#f85149" font-size="13" text-anchor="end">429 ?</text>
+
+  <rect x="610" y="230" width="290" height="58" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+  <text x="625" y="254" fill="#3fb950" font-size="14">cerebras</text>
+  <text x="625" y="273" fill="#8b949e" font-size="12">free tier ~ daily quota</text>
+  <text x="838" y="254" fill="#f85149" font-size="13" text-anchor="end">429 ?</text>
+
+  <rect x="610" y="305" width="290" height="58" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+  <text x="625" y="329" fill="#3fb950" font-size="14">openrouter</text>
+  <text x="625" y="348" fill="#8b949e" font-size="12">:free models</text>
+
+  <line x1="190" y1="210" x2="290" y2="210" stroke="#58a6ff" stroke-width="2" marker-end="url(#a)"/>
+  <line x1="510" y1="190" x2="610" y2="109" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#a)"/>
+  <line x1="510" y1="205" x2="610" y2="184" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#a)"/>
+  <line x1="510" y1="225" x2="610" y2="259" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#a)"/>
+  <line x1="510" y1="245" x2="610" y2="334" stroke="#3fb950" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#a)"/>
+
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <text x="40" y="330" fill="#8b949e" font-size="13">one endpoint, your keys, your Cloudflare account</text>
+  <text x="40" y="354" fill="#8b949e" font-size="13">first provider to answer wins - you never see the 429</text>
+  <text x="40" y="392" fill="#f0f6fc" font-size="14">runs 100% on Cloudflare's free tier</text>
+</svg>
