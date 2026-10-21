@@ -31,11 +31,18 @@ USAGE_KEY_TTL = 60 * 60 * 48
 
 @dataclass
 class ProviderSpec:
-    """One hop in the failover chain: who to call and with which model."""
+    """One hop in the failover chain: who to call and with which model.
+    display labels the hop in debug headers; when a provider has several
+    keys it appears once per key as groq#1, groq#2, ..."""
     name: str
     base_url: str
     api_key: str
     model: str
+    display: str = ""
+
+    def __post_init__(self):
+        if not self.display:
+            self.display = self.name
 
 
 @dataclass
@@ -136,7 +143,8 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
     usage: async get(key) -> int | None, put(key, count, ttl)
     """
     if not isinstance(body.get("messages"), list):
-        return Reply(400, _error_body("request needs a messages array", []))
+        return Reply(400, _error_body("request needs a messages array", []),
+                     {"content-type": "application/json"})
 
     stream = bool(body.get("stream"))
 
@@ -144,17 +152,20 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
     if not stream and config.cache_ttl > 0 and cache is not None:
         hit = await cache.get(key)
         if hit is not None:
-            cached = json.loads(hit)
-            return Reply(200, json.dumps(cached["body"]).encode(),
-                         {"content-type": "application/json",
-                          "x-never429-cache": "hit",
-                          "x-never429-provider": cached["provider"]},
-                         provider=cached["provider"], from_cache=True)
+            try:
+                cached = json.loads(hit)
+                return Reply(200, cached["body_text"].encode(),
+                             {"content-type": "application/json",
+                              "x-never429-cache": "hit",
+                              "x-never429-provider": cached["provider"]},
+                             provider=cached["provider"], from_cache=True)
+            except (json.JSONDecodeError, KeyError):
+                pass  # corrupt cache entry: just go upstream
 
     attempts = []
     for spec in config.chain:
         if await _over_budget(spec, config, usage):
-            attempts.append({"provider": spec.name, "outcome": "skipped_budget"})
+            attempts.append({"provider": spec.display, "outcome": "skipped_budget"})
             continue
 
         await _count_attempt(spec, usage)
@@ -163,12 +174,12 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
                 f"{spec.base_url}/chat/completions",
                 _headers(spec), _forward_body(body, spec.model), config.timeout)
         except Exception as exc:  # timeout, DNS, connection reset, ...
-            attempts.append({"provider": spec.name,
+            attempts.append({"provider": spec.display,
                              "outcome": f"error:{type(exc).__name__}"})
             continue
 
         if status in FAILOVER_STATUSES:
-            attempts.append({"provider": spec.name, "outcome": f"http_{status}"})
+            attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
             continue
 
         if status != 200:
@@ -178,16 +189,19 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
                           "x-never429-attempts": _attempts_header(attempts)},
                          provider=spec.name, attempts=attempts)
 
-        attempts.append({"provider": spec.name, "outcome": "ok"})
+        attempts.append({"provider": spec.display, "outcome": "ok"})
         headers = {"content-type": "application/json",
                    "x-never429-provider": spec.name,
                    "x-never429-cache": "miss",
                    "x-never429-attempts": _attempts_header(attempts)}
         if not stream and config.cache_ttl > 0 and cache is not None:
-            await cache.put(key, json.dumps({
-                "provider": spec.name,
-                "body": json.loads(payload),
-            }), config.cache_ttl)
+            try:
+                await cache.put(key, json.dumps({
+                    "provider": spec.name,
+                    "body_text": payload.decode("utf-8", "replace"),
+                }), config.cache_ttl)
+            except Exception:
+                pass  # caching is an optimization, never a failure mode
         return Reply(200, payload, headers,
                      provider=spec.name, attempts=attempts)
 
@@ -206,7 +220,7 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
     attempts = []
     for spec in config.chain:
         if await _over_budget(spec, config, usage):
-            attempts.append({"provider": spec.name, "outcome": "skipped_budget"})
+            attempts.append({"provider": spec.display, "outcome": "skipped_budget"})
             continue
 
         await _count_attempt(spec, usage)
@@ -215,16 +229,16 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
                 f"{spec.base_url}/chat/completions",
                 _headers(spec), _forward_body(body, spec.model), config.timeout)
         except Exception as exc:
-            attempts.append({"provider": spec.name,
+            attempts.append({"provider": spec.display,
                              "outcome": f"error:{type(exc).__name__}"})
             continue
 
         if 200 <= status < 300:
-            attempts.append({"provider": spec.name, "outcome": "ok"})
+            attempts.append({"provider": spec.display, "outcome": "ok"})
             return Reply(status, None, raw=raw,
                          provider=spec.name, attempts=attempts)
 
-        attempts.append({"provider": spec.name, "outcome": f"http_{status}"})
+        attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
         if status not in FAILOVER_STATUSES:
             break
 
@@ -232,3 +246,16 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
                  {"content-type": "application/json",
                   "x-never429-attempts": _attempts_header(attempts)},
                  attempts=attempts)
+
+
+async def usage_report(provider_names: list, usage) -> dict:
+    """Today's attempt counters per provider, for GET /v1/usage. Empty when
+    no KV namespace is bound."""
+    if usage is None:
+        return {}
+    report = {}
+    for name in provider_names:
+        used = await usage.get(_usage_key(name))
+        if used:
+            report[name] = used
+    return report
