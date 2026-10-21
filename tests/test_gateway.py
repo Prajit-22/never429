@@ -321,8 +321,13 @@ def test_usage_report_reads_todays_counters():
     assert run(gw.usage_report(["groq"], None)) == {}
 
 
-def test_mistral_in_default_chain():
-    env = {"MISTRAL_API_KEY": "mk"}
+def test_mistral_via_model_map_override():
+    # Mistral is not in the built-in default chain anymore; it stays
+    # registered and can be chained through a MODEL_MAP override.
+    env = {
+        "MISTRAL_API_KEY": "mk",
+        "MODEL_MAP": '{"default": ["groq:openai/gpt-oss-120b", "mistral:mistral-small-latest"]}',
+    }
     chain = gw_config.build_chain("default", env)
     mistral = [s for s in chain if s.name == "mistral"]
     assert len(mistral) == 1
