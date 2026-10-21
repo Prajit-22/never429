@@ -6,6 +6,7 @@ into gateway.py, and translate the result back into a Response. All logic
 lives in gateway.py and is covered by local unit tests.
 """
 
+import hmac
 import json
 
 import httpx
@@ -35,6 +36,7 @@ ENV_NAMES = (
     "GROQ_API_KEY", "GROQ_BASE_URL",
     "GEMINI_API_KEY", "GEMINI_BASE_URL",
     "CEREBRAS_API_KEY", "CEREBRAS_BASE_URL",
+    "MISTRAL_API_KEY", "MISTRAL_BASE_URL",
     "OPENROUTER_API_KEY", "OPENROUTER_BASE_URL",
 )
 
@@ -99,8 +101,18 @@ async def http_stream(url, headers, json_body, timeout):
         "headers": headers,
         "body": json.dumps(json_body),
     }
+    try:
+        from js import AbortSignal
+        init["signal"] = AbortSignal.timeout(int(timeout * 1000))
+    except Exception:
+        pass  # older runtimes: no abort support, stream without timeout
     resp = await js_fetch(url, to_js(init))
     return int(resp.status), resp
+
+
+def _today():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def openai_error(message, status):
@@ -122,6 +134,21 @@ class Default(WorkerEntrypoint):
                 "docs": "https://github.com/Prajit-22/never429",
             })
 
+        # If the deployer set a gateway key, clients must present it. Without
+        # this anyone who finds the workers.dev URL could burn your quotas.
+        gateway_key = env.get("GATEWAY_KEY")
+        if gateway_key:
+            provided = request.headers.get("authorization") or ""
+            if not hmac.compare_digest(provided, f"Bearer {gateway_key}"):
+                return openai_error("missing or wrong gateway key", 401)
+
+        if path == "/v1/usage":
+            import providers as _providers
+            kv = getattr(self.env, "USAGE_KV", None)
+            usage = KvUsage(kv) if kv is not None else None
+            report = await gw.usage_report(list(_providers.PROVIDERS), usage)
+            return Response.json({"date_utc": _today(), "attempts": report})
+
         if path == "/v1/models":
             return Response.json({
                 "object": "list",
@@ -133,13 +160,6 @@ class Default(WorkerEntrypoint):
             return openai_error("not found", 404)
         if request.method != "POST":
             return openai_error("POST only", 405)
-
-        # If the deployer set a gateway key, clients must present it. Without
-        # this anyone who finds the workers.dev URL could burn your quotas.
-        gateway_key = env.get("GATEWAY_KEY")
-        if gateway_key:
-            if request.headers.get("authorization") != f"Bearer {gateway_key}":
-                return openai_error("missing or wrong gateway key", 401)
 
         try:
             body = await request.json()
