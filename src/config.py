@@ -33,11 +33,18 @@ def build_chain(model: str, env: dict) -> list:
         meta = providers.PROVIDERS.get(provider_name)
         if meta is None or not upstream_model:
             continue
-        api_key = env.get(meta["key_env"])
-        if not api_key:
+        raw_keys = env.get(meta["key_env"])
+        if not raw_keys:
             continue
         base_url = env.get(meta["base_env"]) or meta["base_url"]
-        chain.append(ProviderSpec(provider_name, base_url, api_key, upstream_model))
+        # Several keys for one provider (comma-separated) become consecutive
+        # hops in the chain: a dead or exhausted key fails over to the next
+        # key, then to the next provider.
+        keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        for i, api_key in enumerate(keys):
+            display = provider_name if len(keys) == 1 else f"{provider_name}#{i + 1}"
+            chain.append(ProviderSpec(provider_name, base_url, api_key,
+                                      upstream_model, display))
     return chain
 
 
