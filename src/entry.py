@@ -61,7 +61,9 @@ class EdgeCache:
                 "Cache-Control": f"max-age={ttl}",
                 "content-type": "application/json",
             })
-            await caches.default.put(f"https://cache.never429/{key}", resp)
+            # The Cache API is a JS API: it needs the underlying JS Response,
+            # not the workers.Response Python wrapper.
+            await caches.default.put(f"https://cache.never429/{key}", resp.js_object)
         except Exception:
             pass
 
