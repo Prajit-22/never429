@@ -22,6 +22,11 @@ PROVIDERS = {
         "key_env": "CEREBRAS_API_KEY",
         "base_env": "CEREBRAS_BASE_URL",
     },
+    "mistral": {
+        "base_url": "https://api.mistral.ai/v1",
+        "key_env": "MISTRAL_API_KEY",
+        "base_env": "MISTRAL_BASE_URL",
+    },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
         "key_env": "OPENROUTER_API_KEY",
@@ -38,6 +43,7 @@ DEFAULT_MODEL_MAP = {
         "groq:llama-3.3-70b-versatile",
         "gemini:gemini-2.5-flash",
         "cerebras:llama-3.3-70b",
+        "mistral:mistral-small-latest",
         "openrouter:meta-llama/llama-3.3-70b-instruct:free",
     ],
     "fast": [
