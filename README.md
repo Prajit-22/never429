@@ -8,7 +8,7 @@ Runs entirely on Cloudflare's free tier. No server, no Docker, no bill.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Prajit-22/never429)
 
-<!-- demo gif goes here: docs/demo.gif (see docs/demo-script.md) -->
+![never429 live demo: automatic failover across free LLM tiers and edge-cache hit](https://github.com/user-attachments/assets/ac675579-b7b9-4ad7-8392-823c990acce8)
 
 ![how it works](docs/diagram.svg)
 
