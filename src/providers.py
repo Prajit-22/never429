@@ -41,14 +41,19 @@ PROVIDERS = {
 DEFAULT_MODEL_MAP = {
     "default": [
         "groq:openai/gpt-oss-120b",
-        "gemini:gemini-2.5-flash",
-        "cerebras:llama-3.3-70b",
-        "mistral:mistral-small-latest",
-        "openrouter:meta-llama/llama-3.3-70b-instruct:free",
+        "gemini:gemini-flash-latest",
+        "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
     ],
     "fast": [
         "groq:openai/gpt-oss-20b",
-        "gemini:gemini-2.5-flash-lite",
-        "cerebras:llama3.1-8b",
+        "gemini:gemini-flash-lite-latest",
+        "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+    ],
+    # Gemini-first chain for demos: a free-tier 429/overload on Gemini
+    # shows the failover to Groq on camera.
+    "demo": [
+        "gemini:gemini-flash-latest",
+        "groq:openai/gpt-oss-120b",
+        "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
     ],
 }
