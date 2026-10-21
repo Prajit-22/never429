@@ -40,7 +40,7 @@ PROVIDERS = {
 # API key are skipped at startup, so it is safe to list all of them.
 DEFAULT_MODEL_MAP = {
     "default": [
-        "groq:llama-3.3-70b-versatile",
+        "groq:openai/gpt-oss-120b",
         "gemini:gemini-2.5-flash",
         "cerebras:llama-3.3-70b",
         "mistral:mistral-small-latest",
