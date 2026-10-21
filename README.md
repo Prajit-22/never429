@@ -2,7 +2,7 @@
 
 **One endpoint for every free LLM tier. When one provider rate-limits you, the next one answers.**
 
-An OpenAI-compatible gateway you deploy to your own Cloudflare account in about a minute. It fronts the free tiers of Groq, Gemini, Cerebras and OpenRouter with *your* keys, and fails over automatically on `429`, auth errors, timeouts and 5xx. Responses are cached at the edge, and optional daily budget caps stop you from accidentally burning a provider's daily quota.
+An OpenAI-compatible gateway you deploy to your own Cloudflare account in about a minute. It fronts the free tiers of Groq, Gemini, Cerebras, Mistral and OpenRouter with *your* keys, and fails over automatically on `429`, auth errors, timeouts and 5xx. Responses are cached at the edge, and optional daily budget caps stop you from accidentally burning a provider's daily quota.
 
 Runs entirely on Cloudflare's free tier. No server, no Docker, no bill.
 
@@ -21,12 +21,13 @@ They are good, and they assume you have somewhere to run a server - Docker, Post
 | hosting | Cloudflare free tier | your server / Docker | your server / Docker |
 | cost to run | $0 | server + DB | server |
 | failover | yes | yes | yes |
+| multiple keys per provider | yes, comma-separated | yes | yes |
 | edge response cache | built in | add Redis | add Redis |
-| code | ~250 lines of Python | large | large |
+| code | ~300 lines of Python | large | large |
 
 ## Quickstart
 
-You need a free Cloudflare account and at least one provider API key (all free: [Groq](https://console.groq.com), [Gemini](https://aistudio.google.com), [Cerebras](https://cloud.cerebras.ai), [OpenRouter](https://openrouter.ai)).
+You need a free Cloudflare account and at least one provider API key (all free: [Groq](https://console.groq.com), [Gemini](https://aistudio.google.com), [Cerebras](https://cloud.cerebras.ai), [Mistral](https://console.mistral.ai), [OpenRouter](https://openrouter.ai)).
 
 **Option A - button:** click *Deploy to Cloudflare* above, then add your keys as secrets in the Cloudflare dashboard (Workers → never429 → Settings → Variables and Secrets).
 
@@ -71,7 +72,7 @@ All optional, set as vars in `wrangler.toml` or the dashboard:
 | `UPSTREAM_TIMEOUT_SECONDS` | `30` | per-attempt timeout before failing over |
 | `GATEWAY_KEY` (secret) | off | if set, clients must send it as their Bearer key |
 
-The default chain for `model: "default"` is Groq → Gemini → Cerebras → OpenRouter (`:free` model), and there is a `"fast"` chain with smaller models. Providers without a key are skipped automatically. Check each provider's docs for current model ids and free-tier limits - they change often.
+The default chain for `model: "default"` is Groq → Gemini → Cerebras → Mistral → OpenRouter (`:free` model), and there is a `"fast"` chain with smaller models. Providers without a key are skipped automatically. Have two keys for one provider? Set them comma-separated (`GROQ_API_KEY=key1,key2`) and a dead or exhausted key fails over to the next one before moving down the chain. Check each provider's docs for current model ids and free-tier limits - they change often.
 
 ## What you get back
 
@@ -84,6 +85,8 @@ x-never429-cache: miss
 ```
 
 If the whole chain is down you get one honest `503` listing every attempt and why it failed - no silent hangs.
+
+`GET /v1/usage` returns today's attempt count per provider (needs the KV binding; behind `GATEWAY_KEY` like every other `/v1/*` endpoint).
 
 Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through. Streaming responses are never cached.
 
@@ -100,7 +103,7 @@ Core logic (`src/gateway.py`, `src/config.py`) is pure Python with zero Cloudfla
 
 ```sh
 pip install pytest httpx
-python -m pytest tests/ -q     # 19 tests
+python -m pytest tests/ -q     # 25 tests
 ```
 
 `docs/demo-script.md` shows how to record a real failover demo with the included mock server, no API keys needed.
