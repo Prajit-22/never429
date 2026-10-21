@@ -1,0 +1,21 @@
+name = "never429"
+main = "src/entry.py"
+compatibility_date = "2026-09-21"
+compatibility_flags = ["python_workers"]
+
+[vars]
+CACHE_TTL_SECONDS = "3600"
+UPSTREAM_TIMEOUT_SECONDS = "30"
+# Optional overrides (JSON):
+# MODEL_MAP = '{"default": ["groq:llama-3.3-70b-versatile", "gemini:gemini-2.5-flash"]}'
+# DAILY_CAPS = '{"groq": 900, "gemini": 1400}'
+
+# Optional: daily per-provider budget caps need a KV namespace.
+# Create one with: npx wrangler kv namespace create USAGE_KV
+# then uncomment and paste the id it prints:
+# [[kv_namespaces]]
+# binding = "USAGE_KV"
+# id = "<paste namespace id here>"
+
+[observability]
+enabled = true
