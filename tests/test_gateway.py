@@ -260,3 +260,70 @@ def test_bad_json_config_does_not_crash():
     cfg = gw_config.build_config("default", env)
     assert len(cfg.chain) > 0
     assert cfg.daily_caps == {}
+
+
+def test_multiple_keys_same_provider_rotate_on_401():
+    # groq#1's key is dead (401); groq#2 answers. Then gemini never needed.
+    cfg = GatewayConfig(chain=[
+        ProviderSpec("groq", "https://groq.test", "dead-key", "m", "groq#1"),
+        ProviderSpec("groq", "https://groq.test", "good-key", "m", "groq#2"),
+    ])
+    seen_keys = []
+
+    def handler(request):
+        seen_keys.append(request.headers["authorization"])
+        if "dead-key" in request.headers["authorization"]:
+            return httpx.Response(401, json={"error": "bad key"})
+        return ok_json("groq")
+
+    reply = run(gw.handle_chat(BODY, config=cfg,
+                               http_post=make_http_post(handler)))
+    assert reply.status == 200
+    assert len(seen_keys) == 2
+    assert reply.attempts[0] == {"provider": "groq#1", "outcome": "http_401"}
+    assert reply.attempts[1] == {"provider": "groq#2", "outcome": "ok"}
+
+
+def test_config_expands_comma_separated_keys():
+    env = {"GROQ_API_KEY": "k1, k2 ,k3", "GEMINI_API_KEY": "gk"}
+    chain = gw_config.build_chain("default", env)
+    groq = [s for s in chain if s.name == "groq"]
+    assert [s.display for s in groq] == ["groq#1", "groq#2", "groq#3"]
+    assert [s.api_key for s in groq] == ["k1", "k2", "k3"]
+    gemini = [s for s in chain if s.name == "gemini"]
+    assert gemini[0].display == "gemini"  # single key: plain name
+
+
+def test_corrupt_cache_entry_goes_upstream():
+    cfg = make_config(names=("groq",))
+    cache = FakeCache()
+    cache.store[gw.cache_key(BODY)] = "{corrupt"
+    post = make_http_post(router({"groq": ok_json("groq")}))
+    reply = run(gw.handle_chat(BODY, config=cfg, http_post=post, cache=cache))
+    assert reply.status == 200
+    assert reply.from_cache is False
+
+
+def test_cached_body_round_trips_without_reparse():
+    cfg = make_config(names=("groq",))
+    cache = FakeCache()
+    post = make_http_post(router({"groq": ok_json("groq")}))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, cache=cache))
+    hit = run(gw.handle_chat(BODY, config=cfg, http_post=post, cache=cache))
+    assert json.loads(hit.body)["model"] == "groq"
+    assert hit.headers["x-never429-provider"] == "groq"
+
+
+def test_usage_report_reads_todays_counters():
+    usage = FakeUsage(initial={gw._usage_key("groq"): 7})
+    report = run(gw.usage_report(["groq", "gemini"], usage))
+    assert report == {"groq": 7}
+    assert run(gw.usage_report(["groq"], None)) == {}
+
+
+def test_mistral_in_default_chain():
+    env = {"MISTRAL_API_KEY": "mk"}
+    chain = gw_config.build_chain("default", env)
+    mistral = [s for s in chain if s.name == "mistral"]
+    assert len(mistral) == 1
+    assert mistral[0].base_url.startswith("https://api.mistral.ai")
