@@ -1,9 +1,11 @@
 # Copy to .dev.vars for `wrangler dev` (or set as secrets for deploy:
 # npx wrangler secret put GROQ_API_KEY ...). You only need ONE provider key
 # to start; every key you add lengthens the failover chain.
+# Comma-separate several keys for one provider to rotate between them.
 GROQ_API_KEY=
 GEMINI_API_KEY=
 CEREBRAS_API_KEY=
+MISTRAL_API_KEY=
 OPENROUTER_API_KEY=
 
 # If set, clients must send: Authorization: Bearer <this>
