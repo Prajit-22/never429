@@ -40,7 +40,7 @@ npm install
 npx wrangler login
 npx wrangler secret put GROQ_API_KEY      # repeat per provider
 npx wrangler secret put GATEWAY_KEY       # optional, protects your endpoint
-npm run deploy
+uv run pywrangler deploy   # NOT npm run deploy - plain wrangler does not bundle the Python deps (httpx)
 ```
 
 Then point any OpenAI client at your worker:
