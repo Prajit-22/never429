@@ -7,7 +7,7 @@ compatibility_flags = ["python_workers"]
 CACHE_TTL_SECONDS = "3600"
 UPSTREAM_TIMEOUT_SECONDS = "30"
 # Optional overrides (JSON):
-# MODEL_MAP = '{"default": ["groq:llama-3.3-70b-versatile", "gemini:gemini-2.5-flash"]}'
+# MODEL_MAP = '{"default": ["groq:openai/gpt-oss-120b", "gemini:gemini-flash-latest", "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free"]}'
 # DAILY_CAPS = '{"groq": 900, "gemini": 1400}'
 
 # Optional: daily per-provider budget caps need a KV namespace.
