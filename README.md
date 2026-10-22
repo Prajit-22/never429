@@ -88,7 +88,7 @@ If the whole chain is down you get one honest `503` listing every attempt and wh
 
 `GET /v1/usage` returns today's attempt count per provider (needs the KV binding; behind `GATEWAY_KEY` like every other `/v1/*` endpoint).
 
-Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through. Streaming responses are never cached.
+Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through. Streaming responses are never cached. On both paths a client-side problem (a 400 from the provider) comes back as the upstream's own response, not a generic 503 - the 503 is reserved for the whole chain failing.
 
 ## Honest limits
 
@@ -103,7 +103,7 @@ Core logic (`src/gateway.py`, `src/config.py`) is pure Python with zero Cloudfla
 
 ```sh
 pip install pytest httpx
-python -m pytest tests/ -q     # 25 tests
+python -m pytest tests/ -q     # 27 tests
 ```
 
 `docs/demo-script.md` shows how to record a real failover demo with the included mock server, no API keys needed.
