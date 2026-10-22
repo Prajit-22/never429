@@ -216,7 +216,12 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
     """Streaming variant. Failover can only happen *before* tokens start
     flowing, so we open each upstream, check its status, and either hand the
     raw live response to the caller or close it and try the next provider.
-    Streaming responses are never cached."""
+    Streaming responses are never cached. A non-failover status (a client
+    problem like 400) passes the upstream's own response back, same as the
+    non-streaming path, instead of a generic 503."""
+    if not isinstance(body.get("messages"), list):
+        return Reply(400, _error_body("request needs a messages array", []),
+                     {"content-type": "application/json"})
     attempts = []
     for spec in config.chain:
         if await _over_budget(spec, config, usage):
@@ -240,7 +245,10 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
 
         attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
         if status not in FAILOVER_STATUSES:
-            break
+            # Client-side problem (bad request shape): hand the upstream's own
+            # response back rather than blaming the whole chain with a 503.
+            return Reply(status, None, raw=raw,
+                         provider=spec.name, attempts=attempts)
 
     return Reply(503, _error_body("all providers failed or over budget", attempts),
                  {"content-type": "application/json",
