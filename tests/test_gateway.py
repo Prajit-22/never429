@@ -332,3 +332,27 @@ def test_mistral_via_model_map_override():
     mistral = [s for s in chain if s.name == "mistral"]
     assert len(mistral) == 1
     assert mistral[0].base_url.startswith("https://api.mistral.ai")
+
+
+def test_streaming_client_error_passes_upstream_response_through():
+    # A 400 from the provider is the client's own bad request: the caller
+    # should see that status and body, not a generic 503 that blames the
+    # providers - same contract as the non-streaming path.
+    cfg = make_config(names=("groq", "gemini"))
+
+    async def http_stream(url, headers, json_body, timeout):
+        return 400, "RAW-ERROR-HANDLE"
+
+    reply = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream))
+    assert reply.status == 400
+    assert reply.raw == "RAW-ERROR-HANDLE"
+    assert reply.provider == "groq"
+    assert len(reply.attempts) == 1  # gemini never tried
+
+
+def test_streaming_missing_messages_is_400():
+    reply = run(gw.handle_stream({"model": "default", "stream": True},
+                                 config=make_config(), http_stream=None))
+    assert reply.status == 400
+    assert reply.raw is None
