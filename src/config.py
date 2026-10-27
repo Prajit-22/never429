@@ -68,4 +68,5 @@ def build_config(model: str, env: dict) -> GatewayConfig:
         cache_ttl=_int("CACHE_TTL_SECONDS", 3600),
         daily_caps=caps,
         timeout=float(_int("UPSTREAM_TIMEOUT_SECONDS", 30)),
+        cooldown_seconds=_int("COOLDOWN_SECONDS", 60),
     )
