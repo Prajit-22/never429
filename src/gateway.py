@@ -9,7 +9,8 @@ only wires these ports to Cloudflare APIs.
 Flow for one chat completion request:
   1. Check the edge cache (non-streaming requests only).
   2. Walk the provider chain for the requested model.
-  3. Skip providers that are over their daily budget.
+  3. Skip providers that are over their daily budget, and keys cooling
+     down after a recent 429.
   4. Try each provider; on 429/5xx/auth error/timeout, fail over to the next.
   5. Cache a successful response and return it.
   6. If every provider failed, return one 503 that lists every attempt.
@@ -51,6 +52,7 @@ class GatewayConfig:
     cache_ttl: int = 3600          # seconds; 0 disables the cache
     daily_caps: dict = field(default_factory=dict)  # {"groq": 900, ...}
     timeout: float = 30.0          # per-attempt upstream timeout, seconds
+    cooldown_seconds: int = 60     # bench a key this long after it 429s; 0 disables
 
 
 @dataclass
@@ -119,6 +121,26 @@ async def _count_attempt(spec: ProviderSpec, usage) -> None:
     await usage.put(key, used + 1, _seconds_until_utc_midnight())
 
 
+def _cooldown_key(spec: ProviderSpec) -> str:
+    # Per key, not per provider: a rate-limited key must not bench its
+    # sibling keys on the same provider.
+    return f"cooldown:{spec.display}"
+
+
+async def _cooling_down(spec: ProviderSpec, usage) -> bool:
+    """True while a key's recent 429 is still fresh. Without a KV namespace
+    there is nowhere to remember, so every key is tried every time."""
+    if usage is None:
+        return False
+    return await usage.get(_cooldown_key(spec)) is not None
+
+
+async def _start_cooldown(spec: ProviderSpec, config: GatewayConfig, usage) -> None:
+    if usage is None or config.cooldown_seconds <= 0:
+        return
+    await usage.put(_cooldown_key(spec), 1, config.cooldown_seconds)
+
+
 def _forward_body(body: dict, upstream_model: str) -> dict:
     """Copy the client request and swap in the upstream model id. Everything
     else - messages, temperature, tools - passes through untouched."""
@@ -167,6 +189,9 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
         if await _over_budget(spec, config, usage):
             attempts.append({"provider": spec.display, "outcome": "skipped_budget"})
             continue
+        if await _cooling_down(spec, usage):
+            attempts.append({"provider": spec.display, "outcome": "skipped_cooldown"})
+            continue
 
         await _count_attempt(spec, usage)
         try:
@@ -180,6 +205,8 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
 
         if status in FAILOVER_STATUSES:
             attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
+            if status == 429:
+                await _start_cooldown(spec, config, usage)
             continue
 
         if status != 200:
@@ -227,6 +254,9 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
         if await _over_budget(spec, config, usage):
             attempts.append({"provider": spec.display, "outcome": "skipped_budget"})
             continue
+        if await _cooling_down(spec, usage):
+            attempts.append({"provider": spec.display, "outcome": "skipped_cooldown"})
+            continue
 
         await _count_attempt(spec, usage)
         try:
@@ -244,6 +274,8 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
                          provider=spec.name, attempts=attempts)
 
         attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
+        if status == 429:
+            await _start_cooldown(spec, config, usage)
         if status not in FAILOVER_STATUSES:
             # Client-side problem (bad request shape): hand the upstream's own
             # response back rather than blaming the whole chain with a 503.
