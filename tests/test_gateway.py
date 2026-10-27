@@ -356,3 +356,126 @@ def test_streaming_missing_messages_is_400():
                                  config=make_config(), http_stream=None))
     assert reply.status == 400
     assert reply.raw is None
+
+
+# --- 429 cooldown ---------------------------------------------------------
+
+
+def test_429_starts_cooldown_and_next_request_skips():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    calls = {"groq": 0, "gemini": 0}
+
+    def handler(request):
+        host = request.url.host.split(".")[0]
+        calls[host] += 1
+        if host == "groq":
+            return httpx.Response(429, json={"error": "rate limited"})
+        return ok_json("gemini")
+
+    post = make_http_post(handler)
+    first = run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    assert first.provider == "gemini"
+    assert calls == {"groq": 1, "gemini": 1}
+
+    second = run(gw.handle_chat({**BODY, "messages": [{"role": "user", "content": "again"}]},
+                                config=cfg, http_post=post, usage=usage))
+    assert second.provider == "gemini"
+    assert calls["groq"] == 1  # cooled-down key never re-tried
+    assert second.attempts[0] == {"provider": "groq", "outcome": "skipped_cooldown"}
+    assert second.attempts[-1]["outcome"] == "ok"
+
+
+def test_cooldown_is_per_key_not_per_provider():
+    cfg = GatewayConfig(chain=[
+        ProviderSpec("groq", "https://groq.test", "tired-key", "m", "groq#1"),
+        ProviderSpec("groq", "https://groq.test", "fresh-key", "m", "groq#2"),
+    ])
+    usage = FakeUsage()
+
+    def handler(request):
+        if "tired-key" in request.headers["authorization"]:
+            return httpx.Response(429, json={})
+        return ok_json("groq")
+
+    post = make_http_post(handler)
+    first = run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    assert first.attempts[0] == {"provider": "groq#1", "outcome": "http_429"}
+    assert first.attempts[1] == {"provider": "groq#2", "outcome": "ok"}
+
+    second = run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    # groq#1 cools down, but its sibling key is still tried immediately.
+    assert second.attempts[0] == {"provider": "groq#1", "outcome": "skipped_cooldown"}
+    assert second.attempts[1] == {"provider": "groq#2", "outcome": "ok"}
+    assert second.status == 200
+
+
+def test_500_does_not_start_cooldown():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    calls = {"groq": 0}
+
+    def handler(request):
+        if request.url.host.startswith("groq"):
+            calls["groq"] += 1
+            return httpx.Response(500, json={})
+        return ok_json("gemini")
+
+    post = make_http_post(handler)
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    assert calls["groq"] == 2  # transient 5xx is worth retrying next request
+
+
+def test_cooldown_needs_usage_kv_and_nonzero_seconds():
+    # No KV bound: nowhere to remember, every key tried every time.
+    cfg = make_config(names=("groq", "gemini"))
+    calls = {"groq": 0}
+
+    def handler(request):
+        if request.url.host.startswith("groq"):
+            calls["groq"] += 1
+            return httpx.Response(429, json={})
+        return ok_json("gemini")
+
+    post = make_http_post(handler)
+    run(gw.handle_chat(BODY, config=cfg, http_post=post))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post))
+    assert calls["groq"] == 2
+
+    # cooldown_seconds=0 disables the feature even with KV bound.
+    cfg_off = make_config(names=("groq", "gemini"))
+    cfg_off.cooldown_seconds = 0
+    usage = FakeUsage()
+    calls["groq"] = 0
+    run(gw.handle_chat(BODY, config=cfg_off, http_post=post, usage=usage))
+    run(gw.handle_chat(BODY, config=cfg_off, http_post=post, usage=usage))
+    assert calls["groq"] == 2
+
+
+def test_streaming_429_starts_cooldown():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    calls = {"groq": 0}
+
+    async def http_stream(url, headers, json_body, timeout):
+        if "groq" in url:
+            calls["groq"] += 1
+            return 429, None
+        return 200, "RAW-STREAM-HANDLE"
+
+    first = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream, usage=usage))
+    assert first.status == 200
+    second = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                  http_stream=http_stream, usage=usage))
+    assert calls["groq"] == 1
+    assert second.attempts[0] == {"provider": "groq", "outcome": "skipped_cooldown"}
+
+
+def test_config_reads_cooldown_seconds():
+    env = {"GROQ_API_KEY": "gk", "COOLDOWN_SECONDS": "120"}
+    assert gw_config.build_config("default", env).cooldown_seconds == 120
+    assert gw_config.build_config("default", {"GROQ_API_KEY": "gk"}).cooldown_seconds == 60
+    bad = {"GROQ_API_KEY": "gk", "COOLDOWN_SECONDS": "banana"}
+    assert gw_config.build_config("default", bad).cooldown_seconds == 60
