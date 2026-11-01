@@ -473,6 +473,79 @@ def test_streaming_429_starts_cooldown():
     assert second.attempts[0] == {"provider": "groq", "outcome": "skipped_cooldown"}
 
 
+def test_retry_after_sets_cooldown_ttl():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    post = make_http_post(router({
+        "groq": httpx.Response(429, json={}, headers={"Retry-After": "5"}),
+        "gemini": ok_json("gemini"),
+    }))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
+    assert cooldown_puts == [("cooldown:groq", 1, 5)]
+
+
+def test_retry_after_is_capped():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    post = make_http_post(router({
+        "groq": httpx.Response(429, json={}, headers={"Retry-After": "86400"}),
+        "gemini": ok_json("gemini"),
+    }))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
+    assert cooldown_puts == [("cooldown:groq", 1, gw.MAX_RETRY_AFTER_SECONDS)]
+
+
+def test_unparseable_retry_after_falls_back_to_config_ttl():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    post = make_http_post(router({
+        "groq": httpx.Response(429, json={}, headers={"Retry-After": "soon"}),
+        "gemini": ok_json("gemini"),
+    }))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
+    assert cooldown_puts == [("cooldown:groq", 1, cfg.cooldown_seconds)]
+
+
+def test_retry_after_zero_records_no_cooldown():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    calls = {"groq": 0}
+
+    def handler(request):
+        if request.url.host.startswith("groq"):
+            calls["groq"] += 1
+            return httpx.Response(429, json={}, headers={"Retry-After": "0"})
+        return ok_json("gemini")
+
+    post = make_http_post(handler)
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    # Upstream said "ready now", so the key is retried on the next request.
+    assert calls["groq"] == 2
+    assert not [p for p in usage.puts if p[0] == "cooldown:groq"]
+
+
+def test_retry_after_parser():
+    assert gw._retry_after_seconds({"retry-after": "12"}) == 12
+    assert gw._retry_after_seconds({"Retry-After": "7"}) == 7  # case-insensitive
+    assert gw._retry_after_seconds({"retry-after": "-3"}) == 0  # clamped
+    assert gw._retry_after_seconds({"retry-after": "soon"}) is None
+    assert gw._retry_after_seconds({}) is None
+    assert gw._retry_after_seconds(None) is None
+
+
+def test_retry_after_parser_http_date():
+    from email.utils import formatdate
+    import time
+    headers = {"retry-after": formatdate(time.time() + 30, usegmt=True)}
+    seconds = gw._retry_after_seconds(headers)
+    assert seconds is not None
+    assert 20 <= seconds <= 30
+
+
 def test_config_reads_cooldown_seconds():
     env = {"GROQ_API_KEY": "gk", "COOLDOWN_SECONDS": "120"}
     assert gw_config.build_config("default", env).cooldown_seconds == 120
