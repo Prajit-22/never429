@@ -20,6 +20,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
 
 # Upstream statuses that mean "try the next provider". 401/403 usually mean
 # a dead or revoked key, which is exactly what a fallback chain is for.
@@ -28,6 +29,10 @@ FAILOVER_STATUSES = {401, 403, 408, 409, 425, 429, 500, 502, 503, 504}
 
 # Days worth of seconds; KV entries self-expire so the namespace stays empty.
 USAGE_KEY_TTL = 60 * 60 * 48
+
+# A Retry-After hint is honored only up to this ceiling: a broken or hostile
+# upstream must not be able to bench a key for days.
+MAX_RETRY_AFTER_SECONDS = 3600
 
 
 @dataclass
@@ -135,10 +140,50 @@ async def _cooling_down(spec: ProviderSpec, usage) -> bool:
     return await usage.get(_cooldown_key(spec)) is not None
 
 
-async def _start_cooldown(spec: ProviderSpec, config: GatewayConfig, usage) -> None:
+def _retry_after_seconds(headers: dict) -> int | None:
+    """Parse a Retry-After response header (delta-seconds or HTTP-date).
+
+    Returns seconds (>= 0), or None when the header is missing or
+    unparseable. Header lookup is case-insensitive: httpx already lowercases
+    response header names, but the port contract does not guarantee it.
+    """
+    if not headers:
+        return None
+    raw = None
+    for name, value in headers.items():
+        if name.lower() == "retry-after":
+            raw = value
+            break
+    if raw is None:
+        return None
+    raw = str(raw).strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(str(raw))
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, int((when - datetime.now(timezone.utc)).total_seconds()))
+
+
+async def _start_cooldown(spec: ProviderSpec, config: GatewayConfig, usage,
+                          retry_after: int | None = None) -> None:
+    """Bench a key after a 429. The upstream's Retry-After (capped at
+    MAX_RETRY_AFTER_SECONDS) wins over the fixed COOLDOWN_SECONDS when
+    present - it knows its own reset; a Retry-After of 0 means the upstream
+    is ready again already, so no cooldown is recorded."""
     if usage is None or config.cooldown_seconds <= 0:
         return
-    await usage.put(_cooldown_key(spec), 1, config.cooldown_seconds)
+    ttl = config.cooldown_seconds
+    if retry_after is not None:
+        ttl = min(retry_after, MAX_RETRY_AFTER_SECONDS)
+        if ttl <= 0:
+            return
+    await usage.put(_cooldown_key(spec), 1, ttl)
 
 
 def _forward_body(body: dict, upstream_model: str) -> dict:
@@ -195,7 +240,7 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
 
         await _count_attempt(spec, usage)
         try:
-            status, _h, payload = await http_post(
+            status, resp_headers, payload = await http_post(
                 f"{spec.base_url}/chat/completions",
                 _headers(spec), _forward_body(body, spec.model), config.timeout)
         except Exception as exc:  # timeout, DNS, connection reset, ...
@@ -206,7 +251,8 @@ async def handle_chat(body: dict, *, config: GatewayConfig, http_post,
         if status in FAILOVER_STATUSES:
             attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
             if status == 429:
-                await _start_cooldown(spec, config, usage)
+                await _start_cooldown(spec, config, usage,
+                                      retry_after=_retry_after_seconds(resp_headers))
             continue
 
         if status != 200:
@@ -275,6 +321,8 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
 
         attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
         if status == 429:
+            # Streaming keeps the fixed cooldown: the raw JS Response's
+            # headers are not part of the http_stream port contract.
             await _start_cooldown(spec, config, usage)
         if status not in FAILOVER_STATUSES:
             # Client-side problem (bad request shape): hand the upstream's own
