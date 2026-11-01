@@ -70,7 +70,7 @@ All optional, set as vars in `wrangler.toml` or the dashboard:
 | `DAILY_CAPS` | off | JSON: per-provider daily request caps, e.g. `{"groq": 900}` |
 | `CACHE_TTL_SECONDS` | `3600` | edge cache lifetime for identical requests; `0` disables |
 | `UPSTREAM_TIMEOUT_SECONDS` | `30` | per-attempt timeout before failing over |
-| `COOLDOWN_SECONDS` | `60` | after a key answers 429, skip it for this long; `0` disables |
+| `COOLDOWN_SECONDS` | `60` | after a key answers 429, skip it for this long; `0` disables. A `Retry-After` response header overrides this (capped at 1 hour) |
 | `GATEWAY_KEY` (secret) | off | if set, clients must send it as their Bearer key |
 
 The default chain for `model: "default"` is Groq → Gemini → OpenRouter (`:free` model), there is a `"fast"` chain with smaller models, and a `"demo"` chain (Gemini first) that makes the failover easy to see. Cerebras and Mistral stay registered in `src/providers.py` if you want them in your own `MODEL_MAP`. Providers without a key are skipped automatically. Have two keys for one provider? Set them comma-separated (`GROQ_API_KEY=key1,key2`) and a dead or exhausted key fails over to the next one before moving down the chain. Check each provider's docs for current model ids and free-tier limits - they change often.
@@ -85,7 +85,7 @@ x-never429-attempts: groq:http_429,gemini:ok
 x-never429-cache: miss
 ```
 
-A key that answers `429` is benched for `COOLDOWN_SECONDS` (default 60), so the next request goes straight to the next key instead of paying for the same rate-limit twice - the attempt log shows it as `skipped_cooldown`. Cooldowns are per key (`groq#1` cooling down never benches `groq#2`), live in the same KV namespace as the usage counters, and simply don't happen when no KV is bound.
+A key that answers `429` is benched for `COOLDOWN_SECONDS` (default 60), so the next request goes straight to the next key instead of paying for the same rate-limit twice - the attempt log shows it as `skipped_cooldown`. When the 429 carries a `Retry-After` header (delta-seconds or HTTP-date), that hint wins over `COOLDOWN_SECONDS`, capped at one hour; a `Retry-After: 0` records no cooldown at all. The streaming path always uses the fixed cooldown, because the raw upstream response's headers stay on the JS side of the Worker. Cooldowns are per key (`groq#1` cooling down never benches `groq#2`), live in the same KV namespace as the usage counters, and simply don't happen when no KV is bound.
 
 If the whole chain is down you get one honest `503` listing every attempt and why it failed - no silent hangs.
 
@@ -106,7 +106,7 @@ Core logic (`src/gateway.py`, `src/config.py`) is pure Python with zero Cloudfla
 
 ```sh
 pip install pytest httpx
-python -m pytest tests/ -q     # 33 tests
+python -m pytest tests/ -q     # 39 tests
 ```
 
 `docs/demo-script.md` shows how to record a real failover demo with the included mock server, no API keys needed.
