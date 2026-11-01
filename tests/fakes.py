@@ -19,11 +19,13 @@ class FakeCache:
 class FakeUsage:
     def __init__(self, initial=None):
         self.counts = dict(initial or {})
+        self.puts = []  # (key, count, ttl) in call order, for TTL assertions
 
     async def get(self, key):
         return self.counts.get(key)
 
     async def put(self, key, count, ttl):
+        self.puts.append((key, count, ttl))
         self.counts[key] = count
 
 
