@@ -552,3 +552,35 @@ def test_config_reads_cooldown_seconds():
     assert gw_config.build_config("default", {"GROQ_API_KEY": "gk"}).cooldown_seconds == 60
     bad = {"GROQ_API_KEY": "gk", "COOLDOWN_SECONDS": "banana"}
     assert gw_config.build_config("default", bad).cooldown_seconds == 60
+def test_cooldown_report_lists_benched_keys():
+    usage = FakeUsage(initial={
+        "cooldown:groq#1": 1,
+        "cooldown:gemini": 1,
+        gw._usage_key("groq"): 3,  # usage counters must not leak in
+    })
+    assert run(gw.cooldown_report(usage)) == ["gemini", "groq#1"]
+
+
+def test_cooldown_report_degrades_without_kv_or_list():
+    assert run(gw.cooldown_report(None)) == []
+
+    class NoList:
+        async def get(self, key):
+            return None
+
+        async def put(self, key, count, ttl):
+            pass
+
+    assert run(gw.cooldown_report(NoList())) == []
+
+
+def test_cooldown_report_after_a_real_429():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    post = make_http_post(router({
+        "groq": httpx.Response(429, json={"error": "rate limited"}),
+        "gemini": ok_json("gemini"),
+    }))
+    reply = run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    assert reply.provider == "gemini"
+    assert run(gw.cooldown_report(usage)) == ["groq"]
