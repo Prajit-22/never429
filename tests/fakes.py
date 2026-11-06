@@ -28,6 +28,9 @@ class FakeUsage:
         self.puts.append((key, count, ttl))
         self.counts[key] = count
 
+    async def list_prefix(self, prefix):
+        return sorted(k for k in self.counts if k.startswith(prefix))
+
 
 def make_http_post(handler):
     """Build a gateway http_post port whose 'network' is an httpx
