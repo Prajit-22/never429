@@ -82,6 +82,15 @@ class KvUsage:
     async def put(self, key, count, ttl):
         await self.kv.put(key, str(count), expirationTtl=ttl)
 
+    async def list_prefix(self, prefix):
+        # KV list is how /v1/usage sees which keys are cooling down. Any
+        # failure degrades to an empty list: the report must not break.
+        try:
+            result = await self.kv.list(to_js({"prefix": prefix}))
+            return [str(k.name) for k in result.keys]
+        except Exception:
+            return []
+
 
 async def http_post(url, headers, json_body, timeout):
     """One blocking upstream call. httpx runs inside Python Workers; locally
@@ -149,7 +158,9 @@ class Default(WorkerEntrypoint):
             kv = getattr(self.env, "USAGE_KV", None)
             usage = KvUsage(kv) if kv is not None else None
             report = await gw.usage_report(list(_providers.PROVIDERS), usage)
-            return Response.json({"date_utc": _today(), "attempts": report})
+            cooldowns = await gw.cooldown_report(usage)
+            return Response.json({"date_utc": _today(), "attempts": report,
+                                  "cooling_down": cooldowns})
 
         if path == "/v1/models":
             return Response.json({
