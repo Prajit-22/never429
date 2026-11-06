@@ -336,6 +336,22 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
                  attempts=attempts)
 
 
+async def cooldown_report(usage) -> list:
+    """Display names of keys currently benched after a 429, for /v1/usage.
+
+    Cooldown entries self-expire in KV, so whatever list_prefix returns is
+    by definition still cooling down. Empty when no KV is bound or the
+    usage port cannot list keys - the report degrades instead of failing.
+    """
+    if usage is None:
+        return []
+    list_prefix = getattr(usage, "list_prefix", None)
+    if list_prefix is None:
+        return []
+    keys = await list_prefix("cooldown:")
+    return sorted(str(k)[len("cooldown:"):] for k in keys)
+
+
 async def usage_report(provider_names: list, usage) -> dict:
     """Today's attempt counters per provider, for GET /v1/usage. Empty when
     no KV namespace is bound."""
