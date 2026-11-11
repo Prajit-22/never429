@@ -2,7 +2,7 @@
 name: free-llm-failover
 description: Calls free-tier LLM providers (Groq, Gemini, Cerebras, Mistral, OpenRouter) with automatic failover - when one key or provider rate-limits, times out, or errors, the next one answers. Use whenever the agent needs an LLM completion without a paid API bill, when a provider returns 429 or 5xx, or when the user wants resilient model calls with budget caps and per-key cooldowns instead of a single point of failure.
 license: MIT
-compatibility: Python 3.9+. No third-party packages. Network access required to reach the LLM providers. Needs at least one provider API key in the environment (all providers have free tiers).
+compatibility: Python 3.9+. No third-party packages. Network access required to reach the LLM providers. Needs at least one provider API key in the environment (all five providers offer a free tier or free models at the time of writing; quotas change).
 metadata:
   author: Prajit Chaturvedi
   version: "1.0"
@@ -31,6 +31,12 @@ export GEMINI_API_KEY="..."              # aistudio.google.com (free)
 export OPENROUTER_API_KEY="sk-or-..."    # openrouter.ai (free models)
 # optional: export DAILY_CAPS='{"groq": 900, "gemini": 1400}'
 ```
+
+All five providers offer a free tier or free models at the time of writing,
+but quotas, reset schedules and which models are free change - check the
+provider's current rate-limit page before relying on a specific model. The
+chains in `scripts/providers.py` are examples that work today, not a
+guarantee; override them with `MODEL_MAP` when a provider reshuffles.
 
 ## Usage
 
@@ -91,8 +97,9 @@ no keys.
 
 - `COOLDOWN_SECONDS` equivalent: `cooldown_seconds` param in failover.chat
   (default 60); per-call in llm.py ask via code, or edit the default.
-- `DAILY_CAPS` (JSON env) caps attempts per provider per UTC day - every
-  provider resets free quotas at UTC midnight, matching the counters.
+- `DAILY_CAPS` (JSON env) caps attempts per provider per UTC day. Providers
+  reset quotas on their own clocks (Groq: midnight UTC; Gemini: midnight
+  Pacific), so set caps below your tightest provider's real daily limit.
 - Custom chains: set `MODEL_MAP` to JSON like
   `{"default": ["gemini:gemini-flash-latest", "groq:openai/gpt-oss-120b"]}`.
   Verify changes with `python3 scripts/selftest.py`.
