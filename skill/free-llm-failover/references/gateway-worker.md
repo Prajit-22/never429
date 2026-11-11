@@ -29,6 +29,7 @@ Click the Deploy-to-Cloudflare button in the repo README (or clone and
 `uv run pywrangler deploy`), then `npx wrangler secret put GROQ_API_KEY`
 (and any other provider keys, comma-separated for several). Point any
 OpenAI client at the worker URL with `api_key` set to your `GATEWAY_KEY`
-(or anything, if you did not set one). All providers fronted have free
-tiers; there is no third-party proxy in the middle - keys live as secrets
-in your own Cloudflare account.
+(or anything, if you did not set one). There is no third-party proxy in the
+middle - keys live as secrets in your own Cloudflare account. Each fronted
+provider offers a free tier or free models at the time of writing; check
+their current rate-limit pages, since quotas and model availability change.
