@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import os
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -482,7 +483,9 @@ def test_retry_after_sets_cooldown_ttl():
     }))
     run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
     cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
-    assert cooldown_puts == [("cooldown:groq", 1, 5)]
+    assert [p[2] for p in cooldown_puts] == [5]
+    left = int(cooldown_puts[0][1]) - datetime.now(timezone.utc).timestamp()
+    assert 0 < left <= 5
 
 
 def test_retry_after_is_capped():
@@ -494,7 +497,9 @@ def test_retry_after_is_capped():
     }))
     run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
     cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
-    assert cooldown_puts == [("cooldown:groq", 1, gw.MAX_RETRY_AFTER_SECONDS)]
+    assert [p[2] for p in cooldown_puts] == [gw.MAX_RETRY_AFTER_SECONDS]
+    left = int(cooldown_puts[0][1]) - datetime.now(timezone.utc).timestamp()
+    assert 0 < left <= gw.MAX_RETRY_AFTER_SECONDS
 
 
 def test_unparseable_retry_after_falls_back_to_config_ttl():
@@ -506,7 +511,9 @@ def test_unparseable_retry_after_falls_back_to_config_ttl():
     }))
     run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
     cooldown_puts = [p for p in usage.puts if p[0] == "cooldown:groq"]
-    assert cooldown_puts == [("cooldown:groq", 1, cfg.cooldown_seconds)]
+    assert [p[2] for p in cooldown_puts] == [cfg.cooldown_seconds]
+    left = int(cooldown_puts[0][1]) - datetime.now(timezone.utc).timestamp()
+    assert 0 < left <= cfg.cooldown_seconds
 
 
 def test_retry_after_zero_records_no_cooldown():
@@ -558,7 +565,11 @@ def test_cooldown_report_lists_benched_keys():
         "cooldown:gemini": 1,
         gw._usage_key("groq"): 3,  # usage counters must not leak in
     })
-    assert run(gw.cooldown_report(usage)) == ["gemini", "groq#1"]
+    # Seeded value 1 parses as a long-past epoch, so nothing is left.
+    assert run(gw.cooldown_report(usage)) == [
+        {"provider": "gemini", "retry_in_seconds": 0},
+        {"provider": "groq#1", "retry_in_seconds": 0},
+    ]
 
 
 def test_cooldown_report_degrades_without_kv_or_list():
@@ -583,4 +594,33 @@ def test_cooldown_report_after_a_real_429():
     }))
     reply = run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
     assert reply.provider == "gemini"
-    assert run(gw.cooldown_report(usage)) == ["groq"]
+    report = run(gw.cooldown_report(usage))
+    assert [row["provider"] for row in report] == ["groq"]
+    assert 0 < report[0]["retry_in_seconds"] <= cfg.cooldown_seconds
+
+
+def test_cooldown_report_reads_remaining_seconds_from_expiry():
+    future = int(datetime.now(timezone.utc).timestamp()) + 120
+    usage = FakeUsage(initial={"cooldown:groq": str(future)})
+    report = run(gw.cooldown_report(usage))
+    assert report[0]["provider"] == "groq"
+    assert 0 < report[0]["retry_in_seconds"] <= 120
+
+
+def test_cooldown_report_tolerates_unparseable_values():
+    usage = FakeUsage(initial={"cooldown:groq": "soon"})
+    assert run(gw.cooldown_report(usage)) == [
+        {"provider": "groq", "retry_in_seconds": None}]
+
+
+def test_429_records_expiry_epoch_as_cooldown_value():
+    cfg = make_config(names=("groq", "gemini"))
+    usage = FakeUsage()
+    post = make_http_post(router({
+        "groq": httpx.Response(429, json={"error": "rate limited"}),
+        "gemini": ok_json("gemini"),
+    }))
+    run(gw.handle_chat(BODY, config=cfg, http_post=post, usage=usage))
+    written = {key: value for key, value, _ in usage.puts}["cooldown:groq"]
+    left = int(written) - datetime.now(timezone.utc).timestamp()
+    assert 0 < left <= cfg.cooldown_seconds
