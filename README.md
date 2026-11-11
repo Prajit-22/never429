@@ -25,6 +25,16 @@ They are good, and they assume you have somewhere to run a server - Docker, Post
 | edge response cache | built in | add Redis | add Redis |
 | code | ~300 lines of Python | large | large |
 
+## Also available as an Agent Skill
+
+The failover core is packaged as a portable Agent Skill (SKILL.md) in
+[`skill/free-llm-failover/`](skill/free-llm-failover/) - a client-side,
+dependency-free Python CLI (`ask` / `status` / `models`) any SKILL.md-
+compatible agent can use to call free LLM tiers with the same failover,
+per-key cooldowns, Retry-After handling and daily budget caps.
+`python3 skill/free-llm-failover/scripts/selftest.py` verifies it end to
+end against local mock providers.
+
 ## Quickstart
 
 You need a free Cloudflare account and at least one provider API key (all free: [Groq](https://console.groq.com), [Gemini](https://aistudio.google.com), [Cerebras](https://cloud.cerebras.ai), [Mistral](https://console.mistral.ai), [OpenRouter](https://openrouter.ai)).
