@@ -183,7 +183,10 @@ async def _start_cooldown(spec: ProviderSpec, config: GatewayConfig, usage,
         ttl = min(retry_after, MAX_RETRY_AFTER_SECONDS)
         if ttl <= 0:
             return
-    await usage.put(_cooldown_key(spec), 1, ttl)
+    # The value is the expiry epoch, not a marker: /v1/usage reads it back
+    # to say how many seconds are left on each bench.
+    expires_at = int(datetime.now(timezone.utc).timestamp()) + ttl
+    await usage.put(_cooldown_key(spec), str(expires_at), ttl)
 
 
 def _forward_body(body: dict, upstream_model: str) -> dict:
@@ -337,19 +340,31 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
 
 
 async def cooldown_report(usage) -> list:
-    """Display names of keys currently benched after a 429, for /v1/usage.
+    """Keys currently benched after a 429, with seconds left, for /v1/usage.
 
     Cooldown entries self-expire in KV, so whatever list_prefix returns is
-    by definition still cooling down. Empty when no KV is bound or the
-    usage port cannot list keys - the report degrades instead of failing.
+    by definition still cooling down. Each entry's value is the expiry
+    epoch written by _start_cooldown, so the report also says how long is
+    left; an entry written by anything else is still listed, with
+    retry_in_seconds null. Empty when no KV is bound or the usage port
+    cannot list keys - the report degrades instead of failing.
     """
     if usage is None:
         return []
     list_prefix = getattr(usage, "list_prefix", None)
     if list_prefix is None:
         return []
-    keys = await list_prefix("cooldown:")
-    return sorted(str(k)[len("cooldown:"):] for k in keys)
+    now = datetime.now(timezone.utc).timestamp()
+    report = []
+    for key in await list_prefix("cooldown:"):
+        remaining = None
+        try:
+            remaining = max(0, int(int(str(await usage.get(key))) - now))
+        except (TypeError, ValueError):
+            pass
+        report.append({"provider": str(key)[len("cooldown:"):],
+                       "retry_in_seconds": remaining})
+    return sorted(report, key=lambda row: row["provider"])
 
 
 async def usage_report(provider_names: list, usage) -> dict:
