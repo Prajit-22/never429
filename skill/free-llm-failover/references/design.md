@@ -43,10 +43,12 @@ Cooldowns are per key (`groq#1`), never per provider.
 ## Daily budget caps
 
 `DAILY_CAPS` (JSON: `{"groq": 900}`) caps attempts per provider per UTC
-day. UTC because every provider resets its free daily quota at UTC
-midnight; matching their clock means the cap actually protects the quota.
-Over-cap hops report `skipped_budget` and the chain moves on. Caps are best
-effort: they count attempts, not tokens.
+day. Providers reset their daily quotas on their own clocks - Groq resets
+at midnight UTC, Gemini at midnight Pacific - so a UTC-day counter is a
+conservative approximation, not an exact mirror of any provider's quota.
+Set caps below the real daily limit of your tightest provider. Over-cap
+hops report `skipped_budget` and the chain moves on. Caps are best effort:
+they count attempts, not tokens.
 
 ## Honest exhaustion
 
