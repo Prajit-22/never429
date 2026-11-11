@@ -18,8 +18,12 @@ that answers 200 wins. Providers with no key configured are dropped when
 the chain is built, so partial setups still work.
 
 Several keys for one provider (comma-separated env var) become consecutive
-hops - `groq#1`, `groq#2` - because rate limits are per key, and a dead key
-should not bench its siblings.
+hops - `groq#1`, `groq#2` - so a dead or revoked key does not bench its
+siblings. Caveat: providers count quota differently. Groq enforces rate
+limits per organization, so two keys from the same Groq org share one quota
+(second key only helps if the first is revoked, not for more capacity);
+Gemini limits per project. For real extra capacity, use keys from separate
+orgs/projects or from different providers.
 
 ## What fails over, what does not
 
@@ -38,7 +42,8 @@ reset - but it is capped at one hour, so a broken or hostile upstream
 cannot bench a key for days. A Retry-After of 0 records no cooldown. While
 benched, the hop reports `skipped_cooldown` and the next key serves.
 
-Cooldowns are per key (`groq#1`), never per provider.
+Cooldowns are tracked per key (`groq#1`), never per provider - but remember
+providers may still count the underlying quota per org or project.
 
 ## Daily budget caps
 
