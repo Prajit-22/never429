@@ -89,7 +89,7 @@ A key that answers `429` is benched for `COOLDOWN_SECONDS` (default 60), so the 
 
 If the whole chain is down you get one honest `503` listing every attempt and why it failed - no silent hangs.
 
-`GET /v1/usage` returns today's attempt count per provider, plus `cooling_down`: the keys currently benched after a 429, so you can see at a glance why a provider is being skipped (both need the KV binding; behind `GATEWAY_KEY` like every other `/v1/*` endpoint).
+`GET /v1/usage` returns today's attempt count per provider, plus `cooling_down`: the keys currently benched after a 429 as `{provider, retry_in_seconds}` entries, so you can see at a glance why a provider is being skipped and how long until it is tried again (`retry_in_seconds` is null for a bench written without an expiry). Both need the KV binding; behind `GATEWAY_KEY` like every other `/v1/*` endpoint.
 
 Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through. Streaming responses are never cached. On both paths a client-side problem (a 400 from the provider) comes back as the upstream's own response, not a generic 503 - the 503 is reserved for the whole chain failing.
 
@@ -106,7 +106,7 @@ Core logic (`src/gateway.py`, `src/config.py`) is pure Python with zero Cloudfla
 
 ```sh
 pip install pytest httpx
-python -m pytest tests/ -q     # 42 tests
+python -m pytest tests/ -q     # 45 tests
 ```
 
 `docs/demo-script.md` shows how to record a real failover demo with the included mock server, no API keys needed.
