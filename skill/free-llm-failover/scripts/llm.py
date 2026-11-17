@@ -71,6 +71,11 @@ def cmd_status(args) -> int:
             print("  %s: retry in %ds" % (row["provider"], row["retry_in_seconds"]))
     else:
         print("cooldowns: none")
+    if report["daily_caps"]:
+        print("daily caps:")
+        for name, row in report["daily_caps"].items():
+            print("  %s: %d/%d used, %d remaining"
+                  % (name, row["used"], row["cap"], row["remaining"]))
     return 0
 
 
