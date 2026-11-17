@@ -159,8 +159,12 @@ class Default(WorkerEntrypoint):
             usage = KvUsage(kv) if kv is not None else None
             report = await gw.usage_report(list(_providers.PROVIDERS), usage)
             cooldowns = await gw.cooldown_report(usage)
+            caps = gw_config.build_config("default", env).daily_caps
+            budgets = await gw.budget_report(list(_providers.PROVIDERS),
+                                             caps, usage)
             return Response.json({"date_utc": _today(), "attempts": report,
-                                  "cooling_down": cooldowns})
+                                  "cooling_down": cooldowns,
+                                  "daily_caps": budgets})
 
         if path == "/v1/models":
             return Response.json({
