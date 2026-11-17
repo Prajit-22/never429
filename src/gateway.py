@@ -378,3 +378,25 @@ async def usage_report(provider_names: list, usage) -> dict:
         if used:
             report[name] = used
     return report
+
+async def budget_report(provider_names: list, caps: dict, usage) -> dict:
+    """Daily budget caps with today's usage, for GET /v1/usage.
+
+    One entry per provider with a configured cap: {"cap", "used",
+    "remaining"}. remaining is floored at 0 because edge requests can race
+    a counter past its cap before the reads land. Without a KV namespace
+    there is nowhere to read counters from, so used and remaining are None
+    - the caps themselves come from config and are always known.
+    """
+    report = {}
+    for name in provider_names:
+        cap = caps.get(name)
+        if cap is None:
+            continue
+        used = None
+        remaining = None
+        if usage is not None:
+            used = await usage.get(_usage_key(name)) or 0
+            remaining = max(0, cap - used)
+        report[name] = {"cap": cap, "used": used, "remaining": remaining}
+    return report
