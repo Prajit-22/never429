@@ -624,3 +624,32 @@ def test_429_records_expiry_epoch_as_cooldown_value():
     written = {key: value for key, value, _ in usage.puts}["cooldown:groq"]
     left = int(written) - datetime.now(timezone.utc).timestamp()
     assert 0 < left <= cfg.cooldown_seconds
+
+def test_budget_report_shows_cap_used_and_remaining():
+    usage = FakeUsage(initial={gw._usage_key("groq"): 5})
+    report = run(gw.budget_report(["groq", "gemini"], {"groq": 900}, usage))
+    assert report == {"groq": {"cap": 900, "used": 5, "remaining": 895}}
+
+
+def test_budget_report_zero_used_before_first_attempt():
+    usage = FakeUsage()
+    report = run(gw.budget_report(["groq"], {"groq": 900}, usage))
+    assert report == {"groq": {"cap": 900, "used": 0, "remaining": 900}}
+
+
+def test_budget_report_skips_uncapped_providers():
+    usage = FakeUsage(initial={gw._usage_key("groq"): 1,
+                               gw._usage_key("gemini"): 2})
+    report = run(gw.budget_report(["groq", "gemini"], {"gemini": 10}, usage))
+    assert report == {"gemini": {"cap": 10, "used": 2, "remaining": 8}}
+
+
+def test_budget_report_remaining_is_floored_at_zero():
+    usage = FakeUsage(initial={gw._usage_key("groq"): 12})
+    report = run(gw.budget_report(["groq"], {"groq": 5}, usage))
+    assert report["groq"] == {"cap": 5, "used": 12, "remaining": 0}
+
+
+def test_budget_report_degrades_without_kv():
+    report = run(gw.budget_report(["groq"], {"groq": 5}, None))
+    assert report == {"groq": {"cap": 5, "used": None, "remaining": None}}
