@@ -101,6 +101,10 @@ def main():
     ok &= check("cooldown recorded with Retry-After seconds",
                 "groq#1" in r.stdout and "retry in" in r.stdout,
                 r.stdout.strip().replace("\n", " | "))
+    # Two groq attempts counted so far (key1 429, key2 200) against cap 5.
+    ok &= check("status reports daily-cap usage",
+                "groq: 2/5 used, 3 remaining" in r.stdout,
+                r.stdout.strip().replace("\n", " | "))
 
     # groq#1 is benched for 120s: the next call must skip it and go straight
     # to groq#2 (which answers 200 on its second hit).
