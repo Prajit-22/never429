@@ -151,8 +151,9 @@ def retry_after_seconds(headers):
 
 
 def status_report(state_path=DEFAULT_STATE_PATH, env=None):
-    """Today's attempt counters per provider plus keys currently benched
-    after a 429, with seconds left on each cooldown."""
+    """Today's attempt counters per provider, keys currently benched
+    after a 429 (with seconds left on each cooldown), and daily budget
+    caps with usage and remaining headroom."""
     state = _load_state(state_path)
     now = time.time()
     # Drop expired cooldowns so reports and chain walks agree.
@@ -164,7 +165,13 @@ def status_report(state_path=DEFAULT_STATE_PATH, env=None):
         for k, v in sorted(state["cooldowns"].items())
     ]
     usage = state["usage"].get(_today(), {})
-    return {"date": _today(), "usage": usage, "cooldowns": cooldowns}
+    budgets = {}
+    for name, cap in sorted(_daily_caps(env).items()):
+        used = usage.get(name, 0)
+        budgets[name] = {"cap": cap, "used": used,
+                         "remaining": max(0, cap - used)}
+    return {"date": _today(), "usage": usage, "cooldowns": cooldowns,
+            "daily_caps": budgets}
 
 
 # --- the call ---------------------------------------------------------------
