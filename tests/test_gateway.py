@@ -359,6 +359,60 @@ def test_streaming_missing_messages_is_400():
     assert reply.raw is None
 
 
+def test_streaming_success_carries_debug_headers():
+    # A streamed answer should name the winning provider and what was
+    # tried, like every other response - the entry point re-wraps the raw
+    # stream with these headers.
+    cfg = make_config(names=("groq",))
+
+    async def http_stream(url, headers, json_body, timeout):
+        return 200, "RAW-STREAM-HANDLE"
+
+    reply = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream))
+    assert reply.status == 200
+    assert reply.headers["x-never429-provider"] == "groq"
+    assert reply.headers["x-never429-attempts"] == "groq:ok"
+
+
+def test_streaming_failover_headers_name_the_winner():
+    cfg = make_config(names=("groq", "gemini"))
+
+    async def http_stream(url, headers, json_body, timeout):
+        if "groq" in url:
+            return 429, None
+        return 200, "RAW-STREAM-HANDLE"
+
+    reply = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream))
+    assert reply.headers["x-never429-provider"] == "gemini"
+    assert reply.headers["x-never429-attempts"] == "groq:http_429,gemini:ok"
+
+
+def test_streaming_passthrough_carries_attempts_header():
+    cfg = make_config(names=("groq", "gemini"))
+
+    async def http_stream(url, headers, json_body, timeout):
+        return 400, "RAW-ERROR-HANDLE"
+
+    reply = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream))
+    assert reply.status == 400
+    assert reply.headers["x-never429-attempts"] == "groq:http_400"
+
+
+def test_streaming_503_carries_attempts_header():
+    cfg = make_config(names=("groq",))
+
+    async def http_stream(url, headers, json_body, timeout):
+        return 429, None
+
+    reply = run(gw.handle_stream({**BODY, "stream": True}, config=cfg,
+                                 http_stream=http_stream))
+    assert reply.status == 503
+    assert reply.headers["x-never429-attempts"] == "groq:http_429"
+
+
 # --- 429 cooldown ---------------------------------------------------------
 
 
