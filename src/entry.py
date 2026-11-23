@@ -197,8 +197,17 @@ class Default(WorkerEntrypoint):
             reply = await gw.handle_stream(
                 body, config=cfg, http_stream=http_stream, usage=usage)
             if reply.raw is not None:
-                # Hand the live upstream stream straight to the client.
-                return reply.raw
+                # Hand the live upstream stream straight to the client,
+                # re-wrapped so the gateway's debug headers (provider,
+                # attempts) ride along like on every other response. The
+                # body passes through untouched; content-type comes from
+                # the upstream response itself so SSE stays SSE.
+                headers = dict(reply.headers)
+                content_type = reply.raw.headers.get("content-type")
+                if content_type is not None:
+                    headers["content-type"] = str(content_type)
+                return Response(reply.raw.body, status=int(reply.raw.status),
+                                headers=headers)
         else:
             reply = await gw.handle_chat(
                 body, config=cfg, http_post=http_post,
