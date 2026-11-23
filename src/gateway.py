@@ -294,7 +294,9 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
     raw live response to the caller or close it and try the next provider.
     Streaming responses are never cached. A non-failover status (a client
     problem like 400) passes the upstream's own response back, same as the
-    non-streaming path, instead of a generic 503."""
+    non-streaming path, instead of a generic 503. Both the success and the
+    passthrough replies carry the usual x-never429 debug headers, so the
+    caller can re-wrap the raw stream with them."""
     if not isinstance(body.get("messages"), list):
         return Reply(400, _error_body("request needs a messages array", []),
                      {"content-type": "application/json"})
@@ -319,8 +321,13 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
 
         if 200 <= status < 300:
             attempts.append({"provider": spec.display, "outcome": "ok"})
-            return Reply(status, None, raw=raw,
-                         provider=spec.name, attempts=attempts)
+            # Debug headers ride on the Reply so the caller can re-wrap the
+            # raw stream with them: a streamed answer should say which
+            # provider won and what was tried, like every other response.
+            return Reply(status, None,
+                         headers={"x-never429-provider": spec.name,
+                                  "x-never429-attempts": _attempts_header(attempts)},
+                         raw=raw, provider=spec.name, attempts=attempts)
 
         attempts.append({"provider": spec.display, "outcome": f"http_{status}"})
         if status == 429:
@@ -330,8 +337,9 @@ async def handle_stream(body: dict, *, config: GatewayConfig, http_stream,
         if status not in FAILOVER_STATUSES:
             # Client-side problem (bad request shape): hand the upstream's own
             # response back rather than blaming the whole chain with a 503.
-            return Reply(status, None, raw=raw,
-                         provider=spec.name, attempts=attempts)
+            return Reply(status, None,
+                         headers={"x-never429-attempts": _attempts_header(attempts)},
+                         raw=raw, provider=spec.name, attempts=attempts)
 
     return Reply(503, _error_body("all providers failed or over budget", attempts),
                  {"content-type": "application/json",
