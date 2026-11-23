@@ -102,7 +102,7 @@ If the whole chain is down you get one honest `503` listing every attempt and wh
 
 `GET /v1/usage` returns today's attempt count per provider, plus `cooling_down`: the keys currently benched after a 429 as `{provider, retry_in_seconds}` entries, so you can see at a glance why a provider is being skipped and how long until it is tried again (`retry_in_seconds` is null for a bench written without an expiry). It also returns `daily_caps`: one `{cap, used, remaining}` entry per provider with a configured `DAILY_CAPS` cap, so you can see how much of each free-tier budget is left before the cap starts skipping that provider (`remaining` floors at 0). Attempt counts need the KV binding - without it `used` and `remaining` are null - while the caps themselves always come from config; behind `GATEWAY_KEY` like every other `/v1/*` endpoint.
 
-Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through. Streaming responses are never cached. On both paths a client-side problem (a 400 from the provider) comes back as the upstream's own response, not a generic 503 - the 503 is reserved for the whole chain failing.
+Streaming (`stream: true`) works: failover happens before the first token, then the upstream stream passes straight through, re-wrapped so the same debug headers (`x-never429-provider`, `x-never429-attempts`) ride along - a streamed answer names its provider too. Streaming responses are never cached. On both paths a client-side problem (a 400 from the provider) comes back as the upstream's own response, not a generic 503 - the 503 is reserved for the whole chain failing.
 
 ## Honest limits
 
@@ -117,7 +117,7 @@ Core logic (`src/gateway.py`, `src/config.py`) is pure Python with zero Cloudfla
 
 ```sh
 pip install pytest httpx
-python -m pytest tests/ -q     # 50 tests
+python -m pytest tests/ -q     # 54 tests
 ```
 
 `docs/demo-script.md` shows how to record a real failover demo with the included mock server, no API keys needed.
